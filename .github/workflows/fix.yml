@@ -5,12 +5,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Analyze idbloader
+      - name: Analyze idbloader deep
         run: |
-          xxd 2.idbloader.img | head -100
-          strings 2.idbloader.img | head -50
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          echo "=== File size ==="
+          ls -la 2.idbloader.img
+          echo "=== Magic bytes ==="
+          xxd 2.idbloader.img | head -4
+          echo "=== LPDDR3 context ==="
+          strings 2.idbloader.img | grep -A10 -B10 "LPDDR3"
+          echo "=== All strings ==="
+          strings 2.idbloader.img
+      - uses: actions/upload-artifact@v4
         with:
           name: idbloader-info
           path: 2.idbloader.img
