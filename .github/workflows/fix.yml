@@ -5,17 +5,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Analyze idbloader deep
+      - name: Get rkbin DDR blobs
         run: |
-          echo "=== File size ==="
-          ls -la 2.idbloader.img
-          echo "=== Magic bytes ==="
-          xxd 2.idbloader.img | head -4
-          echo "=== LPDDR3 context ==="
-          strings 2.idbloader.img | grep -A10 -B10 "LPDDR3"
-          echo "=== All strings ==="
-          strings 2.idbloader.img
+          git clone --depth=1 https://github.com/rockchip-linux/rkbin
+          ls rkbin/bin/rk33/
       - uses: actions/upload-artifact@v4
         with:
-          name: idbloader-info
-          path: 2.idbloader.img
+          name: rkbin-list
+          path: rkbin/bin/rk33/
