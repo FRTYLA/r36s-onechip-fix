@@ -1,0 +1,16 @@
+name: Fix idbloader
+on: [push]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Analyze idbloader
+        run: |
+          xxd 2.idbloader.img | head -100
+          strings 2.idbloader.img | head -50
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: idbloader-info
+          path: 2.idbloader.img
