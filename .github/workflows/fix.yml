@@ -5,14 +5,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Rebuild idbloader
+      - name: Build fixed image
         run: |
           git clone --depth=1 https://github.com/rockchip-linux/rkbin
-          # RK3326 idbloader = DDR blob at offset 0x40 (512 bytes header) + miniloader
           dd if=/dev/zero of=new_idbloader.img bs=512 count=64
           dd if=rkbin/bin/rk33/rk3326_ddr_333MHz_v2.11.bin of=new_idbloader.img bs=512 seek=4
           dd if=rkbin/bin/rk33/rk3326_miniloader_v1.40.bin of=new_idbloader.img bs=512 seek=256
-          ls -la new_idbloader.img
+          dd if=new_idbloader.img of=2.idbloader.img conv=notrunc
+          ls -la new_idbloader.img 2.idbloader.img
       - uses: actions/upload-artifact@v4
         with:
           name: new-idbloader
