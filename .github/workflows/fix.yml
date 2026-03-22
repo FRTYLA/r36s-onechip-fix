@@ -5,13 +5,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Get rkbin and rebuild idbloader
+      - name: Install tools
+        run: sudo apt-get install -y u-boot-tools
+      - name: Rebuild idbloader
         run: |
           git clone --depth=1 https://github.com/rockchip-linux/rkbin
-          git clone --depth=1 https://github.com/rockchip-linux/u-boot
-          cd u-boot
-          ./tools/mkimage -n rk3326 -T rksd -d ../rkbin/bin/rk33/rk3326_ddr_333MHz_v2.11.bin ../new_idbloader.img
-          cat ../rkbin/bin/rk33/rk3326_miniloader_v1.40.bin >> ../new_idbloader.img
+          mkimage -n rk3326 -T rksd -d rkbin/bin/rk33/rk3326_ddr_333MHz_v2.11.bin new_idbloader.img
+          cat rkbin/bin/rk33/rk3326_miniloader_v1.40.bin >> new_idbloader.img
+          ls -la new_idbloader.img
       - uses: actions/upload-artifact@v4
         with:
           name: new-idbloader
