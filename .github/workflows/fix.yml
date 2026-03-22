@@ -10,7 +10,7 @@ jobs:
           xxd 2.idbloader.img | head -100
           strings 2.idbloader.img | head -50
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: idbloader-info
           path: 2.idbloader.img
