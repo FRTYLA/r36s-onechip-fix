@@ -5,15 +5,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Build fixed image
+      - name: Download and fix image
         run: |
+          pip install gdown
+          gdown 1QfFBcsdEIyYnO7r1SD7OqbxjnszcvhD8
+          ls -la
+          unzip *.zip
+          ls -la
           git clone --depth=1 https://github.com/rockchip-linux/rkbin
           dd if=/dev/zero of=new_idbloader.img bs=512 count=64
           dd if=rkbin/bin/rk33/rk3326_ddr_333MHz_v2.11.bin of=new_idbloader.img bs=512 seek=4
           dd if=rkbin/bin/rk33/rk3326_miniloader_v1.40.bin of=new_idbloader.img bs=512 seek=256
-          dd if=new_idbloader.img of=2.idbloader.img conv=notrunc
-          ls -la new_idbloader.img 2.idbloader.img
+          dd if=new_idbloader.img of=lineage*.img bs=512 seek=64 conv=notrunc
+          zip -1 fixed_image.zip lineage*.img
       - uses: actions/upload-artifact@v4
         with:
-          name: new-idbloader
-          path: new_idbloader.img
+          name: fixed-image
+          path: fixed_image.zip
