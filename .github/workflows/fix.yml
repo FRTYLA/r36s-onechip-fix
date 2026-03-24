@@ -1,24 +1,188 @@
-name: Fix idbloader
-on: [push]
+name: Patch R36S Firmware (idbloader DDR blob v2.01)
+ 
+on:
+  workflow_dispatch:
+ 
 jobs:
-  fix:
+  patch-firmware:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+ 
     steps:
-      - uses: actions/checkout@v3
-      - name: Download and fix image
+      - name: Install dependencies
         run: |
-          pip install gdown
-          gdown 1QfFBcsdEIyYnO7r1SD7OqbxjnszcvhD8
-          ls -la
-          unzip *.zip
-          ls -la
-          git clone --depth=1 https://github.com/rockchip-linux/rkbin
-          dd if=/dev/zero of=new_idbloader.img bs=512 count=64
-          dd if=rkbin/bin/rk33/rk3326_ddr_333MHz_v2.11.bin of=new_idbloader.img bs=512 seek=4
-          dd if=rkbin/bin/rk33/rk3326_miniloader_v1.40.bin of=new_idbloader.img bs=512 seek=256
-          dd if=new_idbloader.img of=lineage*.img bs=512 seek=64 conv=notrunc
-          zip -1 fixed_image.zip lineage*.img
-      - uses: actions/upload-artifact@v4
+          sudo apt-get update -q
+          sudo apt-get install -y python3 python3-pip curl wget gdown unzip
+          pip3 install gdown
+ 
+      - name: Download patched idbloader from Google Drive
+        run: |
+          echo "Downloading patched idbloader (DDR blob v2.01)..."
+          gdown "https://drive.google.com/uc?id=18r6eQcqkA3g_778Qx_uwnX73Rc0rZJU-" -O idbloader_patched.img
+          echo "idbloader size: $(wc -c < idbloader_patched.img) bytes"
+ 
+      - name: Download AndR36Droid firmware from Google Drive
+        run: |
+          echo "Downloading AndR36Droid firmware..."
+          gdown "https://drive.google.com/uc?id=1jo4fJLyNqKIHr1BWJZr4TXQOIv7I6CyG" -O firmware_original.img
+          echo "Firmware size: $(wc -c < firmware_original.img) bytes"
+ 
+      - name: Detect firmware type and extract if needed
+        run: |
+          FILE_TYPE=$(file firmware_original.img)
+          echo "File type: $FILE_TYPE"
+ 
+          if echo "$FILE_TYPE" | grep -qi "zip"; then
+            echo "Detected ZIP archive, extracting..."
+            unzip firmware_original.img -d firmware_extracted/
+            IMG_FILE=$(find firmware_extracted/ -name "*.img" | head -1)
+            cp "$IMG_FILE" firmware.img
+          elif echo "$FILE_TYPE" | grep -qi "gzip\|xz\|bzip2"; then
+            echo "Detected compressed archive, extracting..."
+            cp firmware_original.img firmware.img.compressed
+            gunzip -c firmware.img.compressed > firmware.img 2>/dev/null || \
+            xz -d -c firmware.img.compressed > firmware.img 2>/dev/null || \
+            bunzip2 -c firmware.img.compressed > firmware.img
+          else
+            echo "Raw image file detected"
+            cp firmware_original.img firmware.img
+          fi
+ 
+          echo "Working firmware size: $(wc -c < firmware.img) bytes"
+ 
+      - name: Find idbloader offset in firmware
+        run: |
+          python3 << 'EOF'
+          import subprocess
+          import struct
+          import sys
+ 
+          # RK3326 idbloader magic signatures
+          SIGNATURES = [
+              b'\x3b\x8c\xdc\xfc',  # RK idbloader magic
+              b'RKFW',               # Rockchip firmware header
+              b'LOADER',
+          ]
+ 
+          with open('firmware.img', 'rb') as f:
+              data = f.read()
+ 
+          print(f"Firmware size: {len(data)} bytes ({len(data)/1024/1024:.1f} MB)")
+ 
+          # idbloader is typically at sector 64 (offset 0x8000) for RK3326
+          KNOWN_OFFSETS = [
+              0x8000,    # sector 64 - standard RK idbloader offset
+              0x0,       # beginning of image
+              0x200,     # sector 1
+          ]
+ 
+          found_offset = None
+ 
+          # Check known offsets first
+          for off in KNOWN_OFFSETS:
+              if off + 4 <= len(data):
+                  chunk = data[off:off+4]
+                  print(f"  Checking offset 0x{off:08x}: {chunk.hex()}")
+                  for sig in SIGNATURES:
+                      if chunk == sig:
+                          print(f"Found idbloader signature at offset 0x{off:08x}")
+                          found_offset = off
+                          break
+              if found_offset is not None:
+                  break
+ 
+          # If not found at known offsets, search entire image
+          if found_offset is None:
+              print("Searching entire image for idbloader signature...")
+              for sig in SIGNATURES:
+                  idx = data.find(sig)
+                  if idx != -1:
+                      # Align to 512-byte sector boundary
+                      aligned = (idx // 512) * 512
+                      print(f"Found signature '{sig}' at 0x{idx:08x}, aligned to 0x{aligned:08x}")
+                      found_offset = aligned
+                      break
+ 
+          if found_offset is None:
+              print("WARNING: Could not find idbloader signature!")
+              print("Using default RK3326 offset: 0x8000 (sector 64)")
+              found_offset = 0x8000
+ 
+          with open('idbloader_offset.txt', 'w') as f:
+              f.write(str(found_offset))
+ 
+          print(f"\nFinal idbloader offset: 0x{found_offset:08x} ({found_offset} bytes)")
+          EOF
+ 
+          OFFSET=$(cat idbloader_offset.txt)
+          echo "idbloader offset: $OFFSET (0x$(printf '%x' $OFFSET))"
+ 
+      - name: Patch idbloader into firmware
+        run: |
+          python3 << 'EOF'
+          import shutil
+          import os
+ 
+          # Read files
+          with open('firmware.img', 'rb') as f:
+              firmware = bytearray(f.read())
+ 
+          with open('idbloader_patched.img', 'rb') as f:
+              idbloader = f.read()
+ 
+          with open('idbloader_offset.txt', 'r') as f:
+              offset = int(f.read().strip())
+ 
+          print(f"Firmware size:   {len(firmware)} bytes")
+          print(f"idbloader size:  {len(idbloader)} bytes")
+          print(f"Patch offset:    0x{offset:08x} ({offset})")
+ 
+          # Validate
+          if offset + len(idbloader) > len(firmware):
+              print("ERROR: idbloader is larger than available space in firmware!")
+              exit(1)
+ 
+          # Backup original bytes for verification
+          original_bytes = bytes(firmware[offset:offset+16])
+          print(f"Original bytes at offset: {original_bytes.hex()}")
+ 
+          # Patch
+          firmware[offset:offset + len(idbloader)] = idbloader
+ 
+          # Verify
+          patched_bytes = bytes(firmware[offset:offset+16])
+          print(f"Patched bytes at offset:  {patched_bytes.hex()}")
+ 
+          if patched_bytes != bytes(idbloader[:16]):
+              print("ERROR: Patch verification failed!")
+              exit(1)
+ 
+          print("Patch verification: OK")
+ 
+          # Save patched firmware
+          with open('firmware_patched.img', 'wb') as f:
+              f.write(firmware)
+ 
+          print(f"\nPatched firmware saved: firmware_patched.img ({len(firmware)} bytes)")
+          EOF
+ 
+      - name: Verify patched firmware
+        run: |
+          echo "=== Firmware Patch Summary ==="
+          echo "Original firmware : $(wc -c < firmware.img) bytes"
+          echo "Patched firmware  : $(wc -c < firmware_patched.img) bytes"
+          echo "idbloader (new)   : $(wc -c < idbloader_patched.img) bytes"
+          echo "Offset used       : 0x$(printf '%x' $(cat idbloader_offset.txt))"
+          echo ""
+          echo "SHA256 original  : $(sha256sum firmware.img | awk '{print $1}')"
+          echo "SHA256 patched   : $(sha256sum firmware_patched.img | awk '{print $1}')"
+          echo ""
+          echo "First 32 bytes of idbloader region in patched firmware:"
+          dd if=firmware_patched.img bs=1 skip=$(cat idbloader_offset.txt) count=32 2>/dev/null | xxd
+ 
+      - name: Upload patched firmware as artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: fixed-image
-          path: fixed_image.zip
+          name: r36s-firmware-patched-ddr-v2.01
+          path: firmware_patched.img
+          retention-days: 7
